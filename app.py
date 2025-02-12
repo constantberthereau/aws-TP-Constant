@@ -36,6 +36,7 @@ if st.sidebar.button("📂 Charger credentials depuis .env"):
     st.session_state.access_key = credentials["access_key"]
     st.session_state.secret_key = credentials["secret_key"]
     st.session_state.bucket_name = credentials["bucket_name"]
+    
     st.sidebar.success("✅ Credentials chargés avec succès!")
 
 # Champs pour les credentials AWS avec `st.session_state`
@@ -59,7 +60,8 @@ else:
     s3_client = boto3.client(
         "s3",
         aws_access_key_id=st.session_state.access_key,
-        aws_secret_access_key=st.session_state.secret_key
+        aws_secret_access_key=st.session_state.secret_key,
+        region_name='us-east-1'
     )
     
     # Zone d'upload de fichiers
@@ -77,38 +79,46 @@ else:
             elif uploaded_file.size > max_size:
                 st.error("❌ Fichier trop volumineux (max 50MB)!")
             else:
-                original_extension = os.path.splitext(uploaded_file.name)[1]  # Ex: ".jpg", ".png", ".pdf"
+                original_extension = os.path.splitext(uploaded_file.name)[1]  # Ex: ".jpg", ".png", ".mp4"
     
                 # Créer un fichier temporaire avec la même extension
                 with tempfile.NamedTemporaryFile(delete=False, suffix=original_extension) as temp_file:
                     temp_file.write(uploaded_file.getbuffer())  # Écrire le contenu du fichier uploadé
                     file_path = temp_file.name
                 
-                # Upload vers S3
+                # Upload vers S3 et analyse
                 try:
-                    # Analyse du fichier avec le module de modération
-                    rekognition = boto3.client("rekognition", 
-                                               aws_access_key_id=st.session_state.access_key, 
-                                               aws_secret_access_key=st.session_state.secret_key)
-                    
-                    transcribe = boto3.client("transcribe", 
-                                              aws_access_key_id=st.session_state.access_key, 
-                                              aws_secret_access_key=st.session_state.secret_key)
-                    
-                    comprehend = boto3.client("comprehend", 
-                                              aws_access_key_id=st.session_state.access_key, 
-                                              aws_secret_access_key=st.session_state.secret_key)
+                    rekognition = boto3.client(
+                        "rekognition", 
+                        aws_access_key_id=st.session_state.access_key, 
+                        aws_secret_access_key=st.session_state.secret_key,
+                        region_name="us-east-1"
+                    )
 
-                    analysis_results = process_media(file_path, rekognition, transcribe, comprehend,s3_client, st.session_state.bucket_name)
+                    transcribe = boto3.client(
+                        "transcribe", 
+                        aws_access_key_id=st.session_state.access_key, 
+                        aws_secret_access_key=st.session_state.secret_key,
+                        region_name="us-east-1"
+                    )
 
-                    # Affichage sous forme de carte style réseau social
+                    comprehend = boto3.client(
+                        "comprehend", 
+                        aws_access_key_id=st.session_state.access_key, 
+                        aws_secret_access_key=st.session_state.secret_key,
+                        region_name="us-east-1"
+                    )
+
+                    analysis_results = process_media(file_path, rekognition, transcribe, comprehend, s3_client, st.session_state.bucket_name)
+
+                    # Affichage du contenu
                     st.markdown("---")
                     st.subheader("📌 Contenu Uploadé")
                     if uploaded_file.type.startswith("image"):
-                        st.image(uploaded_file, caption="Image uploadée", use_column_width=True)
+                        st.image(uploaded_file, caption="Image uploadée", use_container_width=True)
                     elif uploaded_file.type.startswith("video"):
                         st.video(uploaded_file)
-                    
+
                     # Génération des hashtags
                     hashtags = []
                     if analysis_results:
@@ -129,15 +139,23 @@ else:
                         st.error("❌ Contenu inapproprié détecté!")
                         st.markdown("**Thèmes sensibles détectés :**")
                         for label in analysis_results['moderation']:
-                            st.warning(f"⚠️ {label}")
+                            st.warning(f"⚠️ {label['Name']}")
                     else:
                         st.success("✅ Aucun contenu inapproprié détecté!")
                     
-                    # Option de transcription pour les vidéos
-                    if uploaded_file.type.startswith("video"):
+                    # Affichage de la transcription si c'est une vidéo
+                    if uploaded_file.type.startswith("video") and 'transcription' in analysis_results:
+                        transcription_text = analysis_results['transcription']
                         st.markdown("### 🎤 Transcription de la vidéo")
-                        st.text("[Texte généré automatiquement...] (Simulation)")
-                
+                        st.markdown(
+                            f"""
+                            <div style="border: 2px solid #4CAF50; padding: 10px; border-radius: 10px; background-color: #f0f8ff;">
+                                <p style="font-size: 16px; color: #333;">{transcription_text}</p>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
                 except Exception as e:
                     st.error(f"Erreur lors de l'upload : {e}")
                 finally:
